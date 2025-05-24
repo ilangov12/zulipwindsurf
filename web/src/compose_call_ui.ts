@@ -1,4 +1,4 @@
-import $ from "jquery";
+import * as $ from "jquery";
 import {z} from "zod";
 
 import * as channel from "./channel.ts";
@@ -11,6 +11,112 @@ import * as rows from "./rows.ts";
 import {current_user, realm} from "./state_data.ts";
 import * as ui_report from "./ui_report.ts";
 import * as util from "./util.ts";
+import {ClickToCall} from "./click_to_call";
+
+// Type definitions for jQuery
+declare global {
+    interface Window {
+        $: typeof jQuery;
+    }
+    interface JQuery {
+        closest(selector: string): JQuery;
+        parents(selector: string): JQuery;
+        data(key: string): any;
+        event: any;
+    }
+}
+
+// Type definitions for channel.ts
+declare namespace channel {
+    function post(options: {
+        url: string;
+        data: any;
+        success: (res: any) => void;
+        error: (xhr: any, status: string) => void;
+    }): any;
+    function get(options: {
+        url: string;
+        success: (res: any) => void;
+        error: (xhr: any) => void;
+    }): any;
+}
+
+// Type definitions for rows.ts
+declare namespace rows {
+    function id($messageRow: JQuery): number;
+}
+
+// Type definitions for compose_ui.ts
+declare namespace compose_ui {
+    function insert_syntax_and_focus(
+        content: string,
+        $textarea: JQuery<HTMLTextAreaElement>,
+        block: string,
+        indent: number
+    ): void;
+}
+
+// Initialize click-to-call instance
+let clickToCall: ClickToCall | null = null;
+
+export function update_audio_and_video_chat_button_display(): void {
+    const show_audio_chat_button = compose_call.compute_show_audio_chat_button();
+    $(".compose-control-buttons-container .audio_link").toggle(show_audio_chat_button);
+    $(".message-edit-feature-group .audio_link").toggle(show_audio_chat_button);
+
+    const show_click_to_call_button = true;
+    $(".compose-control-buttons-container .click_to_call").toggle(show_click_to_call_button);
+    $(".message-edit-feature-group .click_to_call").toggle(show_click_to_call_button);
+
+    if (!clickToCall) {
+        clickToCall = new ClickToCall();
+    }
+
+    $(".click_to_call").click(async function() {
+        const $target_element = $(this);
+        const userId = getTargetUserId($target_element);
+        if (userId) {
+            try {
+                await clickToCall?.initiateCall(userId);
+            } catch (error) {
+                ui_report.error("Failed to initiate call", error as Error);
+            }
+        }
+    });
+}
+
+function getTargetUserId($element: JQuery): string | null {
+    const messageRow = $element.closest(".message_row");
+    if (messageRow.length > 0) {
+        return rows.id(messageRow).toString();
+    }
+    return null;
+}
+
+// Type definitions for channel.ts
+declare namespace channel {
+    function post(options: {
+        url: string;
+        data: any;
+        success: (res: any) => void;
+        error: (xhr: JQuery.jqXHR, status: string) => void;
+    }): JQuery.jqXHR;
+}
+
+// Type definitions for rows.ts
+declare namespace rows {
+    function id($messageRow: JQuery): number;
+}
+
+// Type definitions for compose_ui.ts
+declare namespace compose_ui {
+    function insert_syntax_and_focus(
+        content: string,
+        $textarea: JQuery<HTMLTextAreaElement>,
+        block: string,
+        indent: number
+    ): void;
+}
 
 const call_response_schema = z.object({
     msg: z.string(),
@@ -33,6 +139,35 @@ export function update_audio_chat_button_display(): void {
     const show_audio_chat_button = compose_call.compute_show_audio_chat_button();
     $(".compose-control-buttons-container .audio_link").toggle(show_audio_chat_button);
     $(".message-edit-feature-group .audio_link").toggle(show_audio_chat_button);
+
+    const show_click_to_call_button = true; // Always show click-to-call button
+    $(".compose-control-buttons-container .click_to_call").toggle(show_click_to_call_button);
+    $(".message-edit-feature-group .click_to_call").toggle(show_click_to_call_button);
+
+    // Initialize click-to-call if not already initialized
+    if (!clickToCall) {
+        clickToCall = new ClickToCall();
+    }
+
+    $(".click_to_call").click(async function(this: JQuery, event: JQuery.Event) {
+        const $target_element = $(this);
+        const userId = getTargetUserId($target_element);
+        if (userId) {
+            try {
+                await clickToCall?.initiateCall(userId);
+            } catch (error) {
+                ui_report.error("Failed to initiate call", error as Error);
+            }
+        }
+    });
+}
+
+function getTargetUserId($element: JQuery): string | null {
+    const messageRow = $element.closest(".message_row");
+    if (messageRow.length > 0) {
+        return messageRow.data("message").sender_id.toString();
+    }
+    return null;
 }
 
 function insert_video_call_url(url: string, $target_textarea: JQuery<HTMLTextAreaElement>): void {
