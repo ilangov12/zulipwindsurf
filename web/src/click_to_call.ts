@@ -101,7 +101,7 @@ export class ClickToCall {
             const message: CallMessage = {
                 type: 'answer',
                 from_user_id: parseInt(this.userId),
-                to_user_id: parseInt(this.userId),
+                to_user_id: parseInt(userId),
                 data: answer
             };
 
@@ -140,12 +140,13 @@ export class ClickToCall {
     }
 
     private displayRemoteStream(): void {
-        const videoElement = document.getElementById('remote-video') as HTMLVideoElement;
-        if (videoElement && this.remoteStream) {
-            videoElement.srcObject = this.remoteStream;
-            videoElement.play().catch((error) => {
-                console.error('Failed to play video:', error);
-            });
+        // For audio-only calls, we don't need to display any video
+        // Just ensure the audio is playing
+        if (this.remoteStream) {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioContext.createMediaStreamSource(this.remoteStream);
+            const destination = audioContext.createMediaStreamDestination();
+            source.connect(destination);
         }
     }
 
@@ -175,5 +176,4 @@ export class ClickToCall {
 
         this.sendMessage(message);
     }
-}
 }
