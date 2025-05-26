@@ -1,18 +1,43 @@
-import {z} from "zod";
-import {current_user, realm} from "./state_data.ts";
-import * as channel from "./channel.ts";
+import * as channel from "./channel";
+import {current_user} from "./state_data";
+import * as rows from "./rows";
+import * as ui_report from "./ui_report";
+import z from "zod";
 
-export interface CallMessage {
+// Type definitions for jQuery
+declare global {
+    interface Window {
+        $: typeof jQuery;
+    }
+    interface JQuery {
+        closest(selector: string): JQuery;
+        parents(selector: string): JQuery;
+        data(key: string): any;
+        event: any;
+    }
+}
+
+// Call message type
+type CallMessage = {
     type: 'offer' | 'answer' | 'ice-candidate' | 'end';
     from_user_id: number;
     to_user_id: number;
     data: any;
-}
+};
 
+// Zod schema for call response
 const call_response_schema = z.object({
     msg: z.string(),
     result: z.string(),
     url: z.string(),
+});
+
+// Zod schema for call message
+const call_message_schema = z.object({
+    type: z.enum(['offer', 'answer', 'ice-candidate', 'end']),
+    from_user_id: z.number(),
+    to_user_id: z.number(),
+    data: z.any()
 });
 
 export class ClickToCall {
@@ -28,35 +53,47 @@ export class ClickToCall {
         this.initializePeerConnection();
     }
 
+    static generate_and_insert_audio_or_video_call_link(userId: string): string {
+        const callLink = `<a href="#" class="click_to_call" data-user-id="${userId}">Call</a>`;
+        return callLink;
+    }
+
+    static call_response_schema = z.object({
+        type: z.enum(['offer', 'answer', 'ice-candidate', 'end']),
+        from_user_id: z.number(),
+        to_user_id: z.number(),
+        data: z.any()
+    });
+
     private generateCallId(): string {
         return Math.random().toString(36).substring(2, 15);
     }
 
-    private initializePeerConnection() {
-        this.peerConnection = new RTCPeerConnection({
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                // Add more STUN/TURN servers as needed
-            ]
-        });
+    private initializePeerConnection(): void {
+        if (!this.peerConnection) {
+            this.peerConnection = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' }
+                ]
+            });
 
-        this.peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                this.sendIceCandidate(event.candidate);
-            }
-        };
+            this.peerConnection.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
+                if (event.candidate) {
+                    this.sendIceCandidate(event.candidate);
+                }
+            };
 
-        this.peerConnection.ontrack = (event) => {
-            this.remoteStream = event.streams[0];
-            this.displayRemoteStream();
-        };
+            this.peerConnection.ontrack = (event: RTCTrackEvent) => {
+                this.remoteStream = event.streams[0];
+                this.displayRemoteStream();
+            };
 
-        // Handle connection state changes
-        this.peerConnection.onconnectionstatechange = () => {
-            if (this.peerConnection?.connectionState === 'disconnected') {
-                this.closeCall();
-            }
-        };
+            this.peerConnection.onconnectionstatechange = () => {
+                if (this.peerConnection?.connectionState === 'disconnected') {
+                    this.closeCall();
+                }
+            };
+        }
     }
 
     private async getLocalStream(): Promise<MediaStream> {
@@ -67,81 +104,100 @@ export class ClickToCall {
             });
             return stream;
         } catch (error) {
-            throw new Error('Failed to access media devices: ' + error);
+            if (error instanceof Error) {
+                throw new Error('Failed to access media devices: ' + error.message);
+            }
+            throw new Error('Failed to access media devices: Unknown error');
         }
     }
 
-    async initiateCall(userId: string): Promise<void> {
+    async initCall(userId: string): Promise<void> {
         try {
             const stream = await this.getLocalStream();
-            stream.getTracks().forEach(track => this.peerConnection?.addTrack(track, stream));
+            if (this.peerConnection) {
+                stream.getTracks().forEach(track => this.peerConnection.addTrack(track, stream));
 
-            const offer = await this.peerConnection?.createOffer();
-            await this.peerConnection?.setLocalDescription(offer);
+                const offer = await this.peerConnection.createOffer();
+                await this.peerConnection.setLocalDescription(offer);
 
-            const message: CallMessage = {
-                type: 'offer',
-                from_user_id: parseInt(this.userId),
-                to_user_id: parseInt(userId),
-                data: offer
-            };
+                const message: CallMessage = {
+                    type: 'offer',
+                    from_user_id: parseInt(this.userId),
+                    to_user_id: parseInt(userId),
+                    data: offer
+                };
 
-            this.sendMessage(message);
+                this.sendMessage(message);
+            }
         } catch (error) {
-            throw new Error('Failed to initiate call: ' + error);
+            if (error instanceof Error) {
+                throw new Error('Failed to initialize call: ' + error.message);
+            }
+            throw new Error('Failed to initialize call: Unknown error');
         }
     }
 
-    async acceptCall(offer: RTCSessionDescriptionInit): Promise<void> {
+    async acceptCall(userId: string, offer: RTCSessionDescriptionInit): Promise<void> {
         try {
-            await this.peerConnection?.setRemoteDescription(offer);
-            const answer = await this.peerConnection?.createAnswer();
-            await this.peerConnection?.setLocalDescription(answer);
+            if (this.peerConnection) {
+                await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
 
-            const message: CallMessage = {
-                type: 'answer',
-                from_user_id: parseInt(this.userId),
-                to_user_id: parseInt(userId),
-                data: answer
-            };
+                const stream = await this.getLocalStream();
+                stream.getTracks().forEach(track => this.peerConnection.addTrack(track, stream));
 
-            this.sendMessage(message);
+                const answer = await this.peerConnection.createAnswer();
+                await this.peerConnection.setLocalDescription(answer);
+
+                const message: CallMessage = {
+                    type: 'answer',
+                    from_user_id: parseInt(this.userId),
+                    to_user_id: parseInt(userId),
+                    data: answer
+                };
+
+                this.sendMessage(message);
+            }
         } catch (error) {
-            throw new Error('Failed to accept call: ' + error);
+            if (error instanceof Error) {
+                throw new Error('Failed to accept call: ' + error.message);
+            }
+            throw new Error('Failed to accept call: Unknown error');
         }
     }
 
     private sendMessage(message: CallMessage): void {
-        channel.post({
-            url: '/json/calls/message',
-            data: {
-                message_type: 'call',
-                call_id: this.callId,
-                message: JSON.stringify(message)
-            },
-            success: () => {
-                console.log('Message sent successfully');
-            },
-            error: (xhr) => {
-                console.error('Failed to send message:', xhr.responseJSON);
-            }
-        });
+        if (message) {
+            channel.post({
+                url: '/json/calls/message',
+                data: {
+                    message_type: 'call',
+                    call_id: this.callId,
+                    message: JSON.stringify(message)
+                },
+                success: () => {
+                    console.log('Message sent successfully');
+                },
+                error: (xhr: JQuery.jqXHR) => {
+                    console.error('Failed to send message:', xhr.responseJSON);
+                }
+            });
+        }
     }
 
     private sendIceCandidate(candidate: RTCIceCandidate): void {
-        const message: CallMessage = {
-            type: 'ice-candidate',
-            from_user_id: parseInt(this.userId),
-            to_user_id: parseInt(this.userId),
-            data: candidate
-        };
+        if (candidate) {
+            const message: CallMessage = {
+                type: 'ice-candidate',
+                from_user_id: parseInt(this.userId),
+                to_user_id: parseInt(this.userId),
+                data: candidate
+            };
 
-        this.sendMessage(message);
+            this.sendMessage(message);
+        }
     }
 
     private displayRemoteStream(): void {
-        // For audio-only calls, we don't need to display any video
-        // Just ensure the audio is playing
         if (this.remoteStream) {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const source = audioContext.createMediaStreamSource(this.remoteStream);
@@ -166,7 +222,6 @@ export class ClickToCall {
             this.remoteStream = null;
         }
 
-        // Send call end message
         const message: CallMessage = {
             type: 'end',
             from_user_id: parseInt(this.userId),

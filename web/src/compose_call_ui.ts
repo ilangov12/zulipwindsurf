@@ -5,7 +5,7 @@ import * as compose_call from "./compose_call.ts";
 import * as rows from "./rows.ts";
 import {current_user, realm} from "./state_data.ts";
 import * as ui_report from "./ui_report.ts";
-import {ClickToCall} from "./click_to_call";
+import {ClickToCall, generate_and_insert_audio_or_video_call_link} from "./click_to_call";
 
 // Type definitions for jQuery
 declare global {
